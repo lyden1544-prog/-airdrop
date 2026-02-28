@@ -6,7 +6,9 @@
     "start": "node drainer-bot.js"
   },
   "dependencies": {
-    "ethers": "^6.7.0",
-    "node-fetch": "^3.3.2"
+    "ethers": "^6.7.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
   }
 }

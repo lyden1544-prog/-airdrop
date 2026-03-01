@@ -1,12 +1,23 @@
 {
   "name": "drainer-bot",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "private": true,
   "scripts": {
-    "start": "node drainer-bot.js"
+    "start": "node drainer-bot.js",
+    "start:evm": "node drainer-bot.js",
+    "start:solana": "node solana-drainer.js",
+    "start:btc": "node btc-drainer.js"
   },
   "dependencies": {
-    "ethers": "^6.7.0"
+    "ethers": "^6.7.0",
+    "@solana/web3.js": "^1.87.6",
+    "@solana/spl-token": "^0.3.9",
+    "bs58": "^5.0.0",
+    "bitcoinjs-lib": "^6.1.5",
+    "ecpair": "^2.1.0",
+    "tiny-secp256k1": "^2.2.3",
+    "axios": "^1.6.2",
+    "node-fetch": "^3.3.2"
   },
   "engines": {
     "node": ">=18.0.0"

